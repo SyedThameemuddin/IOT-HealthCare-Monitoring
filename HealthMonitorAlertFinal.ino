@@ -23,6 +23,11 @@ const char* password = "ideawifi2"; // Your Wi-Fi password
 String apiKey = "E0SZO2XMU6OSF6WA"; // ThingSpeak API key
 const char* server = "http://api.thingspeak.com/update";
 
+// IFTTT setup (replace with your IFTTT event name and key)
+const char* ifttt_event_name = "health_alert";  // Replace with your IFTTT event name
+const char* ifttt_key = "caT3j1GCDuE7i6NMXRFw5c";  // Replace with your IFTTT Webhook key
+String ifttt_url = "http://maker.ifttt.com/trigger/" + String(ifttt_event_name) + "/with/key/" + String(ifttt_key);
+
 // Variables for timing ThingSpeak updates
 unsigned long lastUpdateTime = 0;
 const unsigned long updateInterval = 15000;  // 15 seconds (ThingSpeak limit)
@@ -41,7 +46,6 @@ void setup() {
 
     // Start reading the PulseSensor signal
     if (!pulseSensor.begin()) {
-        // Initialization failed, flash the LED to indicate an error
         for(;;) {
             digitalWrite(PULSE_BLINK, LOW);
             delay(50);
@@ -74,19 +78,19 @@ void loop() {
         Serial.println(lastValidHeartRate); // Print heart rate to Serial
     }
 
+    // Get temperature reading from DHT sensor
+    float temperature = dht.readTemperature();
+    if (isnan(temperature)) {
+        Serial.println("Failed to read from DHT sensor!");
+    } else {
+        Serial.print("Temperature: ");
+        Serial.println(temperature);
+    }
+
     // Send data to ThingSpeak every 15 seconds
     unsigned long currentTime = millis();
     if (currentTime - lastUpdateTime > updateInterval) {
         lastUpdateTime = currentTime;
-
-        // Get temperature reading from DHT sensor
-        float temperature = dht.readTemperature();
-        if (isnan(temperature)) {
-            Serial.println("Failed to read from DHT sensor!");
-        } else {
-            Serial.print("Temperature: ");
-            Serial.println(temperature);
-        }
 
         // Send temperature and the most recent heart rate to ThingSpeak
         if (WiFi.status() == WL_CONNECTED) {
@@ -102,5 +106,26 @@ void loop() {
             }
             http.end();
         }
+    }
+
+    // Check if heart rate exceeds 120 BPM or temperature exceeds 35°C and trigger IFTTT
+    if (lastValidHeartRate > 120 || temperature > 35) {
+        sendAlert(lastValidHeartRate, temperature); // Call function to trigger alert
+    }
+}
+
+void sendAlert(int heartRate, float temperature) {
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        String ifttt_alert_url = ifttt_url + "?value1=" + String(heartRate) + "&value2=" + String(temperature);
+        http.begin(ifttt_alert_url);
+        int httpCode = http.POST("");  // Send a POST request to trigger the alert
+
+        if (httpCode > 0) {
+            Serial.println("IFTTT alert triggered successfully");
+        } else {
+            Serial.println("Error in triggering IFTTT alert");
+        }
+        http.end();
     }
 }
