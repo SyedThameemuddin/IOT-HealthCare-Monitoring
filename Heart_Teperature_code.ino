@@ -7,8 +7,8 @@
 
 // Pulse Sensor setup
 const int OUTPUT_TYPE = SERIAL_PLOTTER;
-const int PULSE_INPUT = 34; // GPIO34 for ESP32
-const int PULSE_BLINK = 2;  // On-board LED pin or another GPIO pin for blink
+const int PULSE_INPUT = 34;  // GPIO34 for ESP32
+const int PULSE_BLINK = 2;   // On-board LED pin or another GPIO pin for blink
 const int THRESHOLD = 550;   // Adjust this threshold for noise filtering
 PulseSensorPlayground pulseSensor;
 
@@ -18,10 +18,17 @@ PulseSensorPlayground pulseSensor;
 DHT dht(DHTPIN, DHTTYPE);
 
 // Wi-Fi and ThingSpeak setup
-const char* ssid = "IDEA_WIFI_2";  // Your Wi-Fi network name
+const char* ssid = "IDEA_WIFI_2";   // Your Wi-Fi network name
 const char* password = "ideawifi2"; // Your Wi-Fi password
-String apiKey = "E0SZO2XMU6OSF6WA";  // ThingSpeak API key
+String apiKey = "E0SZO2XMU6OSF6WA"; // ThingSpeak API key
 const char* server = "http://api.thingspeak.com/update";
+
+// Variables for timing ThingSpeak updates
+unsigned long lastUpdateTime = 0;
+const unsigned long updateInterval = 15000;  // 15 seconds (ThingSpeak limit)
+
+// Store the last valid heart rate
+int lastValidHeartRate = 0;
 
 void setup() {
     Serial.begin(115200);  // Start serial communication at 115200 baud
@@ -57,56 +64,43 @@ void setup() {
 }
 
 void loop() {
-    delay(20);  // Wait a bit before processing the next sample
-
-    // Update PulseSensor readings
+    // Update PulseSensor readings continuously
     pulseSensor.outputSample();
 
-    // Check if a beat has happened
+    // Check if a beat has been detected
     if (pulseSensor.sawStartOfBeat()) {
-        int heartRate = pulseSensor.getBeatsPerMinute(); // Get heart rate
+        lastValidHeartRate = pulseSensor.getBeatsPerMinute(); // Store latest heart rate
         Serial.print("Heart Rate: ");
-        Serial.println(heartRate); // Print heart rate to Serial
+        Serial.println(lastValidHeartRate); // Print heart rate to Serial
+    }
 
-        // Send heart rate to ThingSpeak
+    // Send data to ThingSpeak every 15 seconds
+    unsigned long currentTime = millis();
+    if (currentTime - lastUpdateTime > updateInterval) {
+        lastUpdateTime = currentTime;
+
+        // Get temperature reading from DHT sensor
+        float temperature = dht.readTemperature();
+        if (isnan(temperature)) {
+            Serial.println("Failed to read from DHT sensor!");
+        } else {
+            Serial.print("Temperature: ");
+            Serial.println(temperature);
+        }
+
+        // Send temperature and the most recent heart rate to ThingSpeak
         if (WiFi.status() == WL_CONNECTED) {
             HTTPClient http;
-            String url = String(server) + "?api_key=" + apiKey + "&field2=" + String(heartRate);
+            String url = String(server) + "?api_key=" + apiKey + "&field1=" + String(temperature) + "&field2=" + String(lastValidHeartRate); // Send last valid heart rate
             http.begin(url);
             int httpCode = http.GET();
 
             if (httpCode > 0) {
-                Serial.println("Heart rate sent to ThingSpeak successfully");
+                Serial.println("Data sent to ThingSpeak successfully");
             } else {
-                Serial.println("Error in sending heart rate to ThingSpeak");
+                Serial.println("Error in sending data to ThingSpeak");
             }
             http.end();
         }
     }
-
-    // Get temperature reading
-    float temperature = dht.readTemperature();
-    if (isnan(temperature)) {
-        Serial.println("Failed to read from DHT sensor!");
-    } else {
-        Serial.print("Temperature: ");
-        Serial.println(temperature);
-    }
-
-    // Send temperature to ThingSpeak
-    if (WiFi.status() == WL_CONNECTED) {
-        HTTPClient http;
-        String url = String(server) + "?api_key=" + apiKey + "&field1=" + String(temperature);
-        http.begin(url);
-        int httpCode = http.GET();
-
-        if (httpCode > 0) {
-            Serial.println("Temperature sent to ThingSpeak successfully");
-        } else {
-            Serial.println("Error in sending temperature to ThingSpeak");
-        }
-        http.end();
-    }
-
-    delay(2000);  // Delay between measurements
 }
