@@ -7,10 +7,10 @@
 
 // Define patient structure
 struct Patient {
-  String patientID;
-  String roomNo;
-  int heartRate;
-  float temperature;
+    String patientID;
+    String roomNo;
+    int heartRate;
+    float temperature;
 };
 
 // Create virtual patients
@@ -34,7 +34,7 @@ String apiKeyPatient1 = "RZT1C7390VMNGL6H";  // ThingSpeak API Key for Patient 1
 String apiKeyPatient2 = "WSPDMH8ATSC5FA1M";  // ThingSpeak API Key for Patient 2
 const char* server = "http://api.thingspeak.com/update";
 
-// IFTTT setup (replace with your IFTTT event name and key)
+// IFTTT setup
 const char* ifttt_event_name_1 = "patient_1_alert";  // Event for Patient 1
 const char* ifttt_event_name_2 = "patient_2_alert";  // Event for Patient 2
 const char* ifttt_key = "caT3j1GCDuE7i6NMXRFw5c";  
@@ -46,7 +46,7 @@ unsigned long lastSwitchTime = 0;
 const unsigned long switchInterval = 15000;  // 15 seconds
 int currentPatient = 1; // Start with Patient 1
 
-// Store the last valid heart rate
+// Store the last valid heart rate for alerts
 int lastValidHeartRate = 0;
 
 void setup() {
@@ -74,71 +74,81 @@ void loop() {
     // Switch between patients every 15 seconds
     unsigned long currentTime = millis();
     if (currentTime - lastSwitchTime > switchInterval) {
-        currentPatient = (currentPatient == 1) ? 2 : 1; // Switch between Patient 1 and Patient 2
         lastSwitchTime = currentTime;
-        Serial.print("Switching to ");
-        Serial.println((currentPatient == 1) ? "Patient 1" : "Patient 2");
+
+        // Update current patient data
+        if (currentPatient == 1) {
+            updatePatientData(patient1);
+            currentPatient = 2;
+        } else {
+            updatePatientData(patient2);
+            currentPatient = 1;
+        }
+    }
+}
+
+void updatePatientData(Patient& patient) {
+    // Update PulseSensor readings continuously
+    pulseSensor.outputSample();
+
+    // Check if a beat has been detected
+    if (pulseSensor.sawStartOfBeat()) {
+        patient.heartRate = pulseSensor.getBeatsPerMinute(); // Store latest heart rate
+        Serial.print(patient.patientID);
+        Serial.print(" Heart Rate: ");
+        Serial.println(patient.heartRate); // Print heart rate to Serial
     }
 
-    // Update patient data
-    updatePatientData((currentPatient == 1) ? patient1 : patient2);
-
-    // Print to Serial Monitor
-    Serial.print("Patient: ");
-    Serial.print((currentPatient == 1) ? patient1.patientID : patient2.patientID);
-    Serial.print(", Heart Rate: ");
-    Serial.print((currentPatient == 1) ? patient1.heartRate : patient2.heartRate);
-    Serial.print(", Temperature: ");
-    Serial.println((currentPatient == 1) ? patient1.temperature : patient2.temperature);
+    // Get temperature reading from DHT sensor
+    patient.temperature = dht.readTemperature();
+    if (isnan(patient.temperature)) {
+        Serial.println("Failed to read from DHT sensor!");
+    } else {
+        Serial.print(patient.patientID);
+        Serial.print(" Temperature: ");
+        Serial.println(patient.temperature);
+    }
 
     // Send data to ThingSpeak
-    sendDataToThingSpeak((currentPatient == 1) ? patient1 : patient2);
+    sendToThingSpeak(patient);
 
-    // Check thresholds and send alert if necessary
-    if ((currentPatient == 1 && (patient1.heartRate > 120 || patient1.temperature > 38)) ||
-        (currentPatient == 2 && (patient2.heartRate > 120 || patient2.temperature > 38))) {
-        sendAlert((currentPatient == 1) ? patient1 : patient2);
-    }
-
-    delay(1000); // 1-second delay between data updates
-}
-
-void updatePatientData(Patient &patient) {
-    if (currentPatient == 1) {
-        // Real data for Patient 1
-        patient.heartRate = pulseSensor.getBeatsPerMinute();
-        patient.temperature = dht.readTemperature();
-    } else {
-        // Simulated data for Patient 2
-        patient.heartRate = random(60, 100); // Random heart rate between 60-100 bpm
-        patient.temperature = random(35, 38); // Random temperature between 35-38°C
+    // Check if heart rate exceeds 120 BPM or temperature exceeds 35°C and trigger IFTTT
+    if (patient.heartRate > 120 || patient.temperature > 35) {
+        sendAlert(patient);
     }
 }
 
-void sendDataToThingSpeak(Patient &patient) {
+void sendToThingSpeak(Patient& patient) {
+    String apiKey = (patient.patientID == "Patient 1") ? apiKeyPatient1 : apiKeyPatient2;
     if (WiFi.status() == WL_CONNECTED) {
         HTTPClient http;
-        String apiKey = (currentPatient == 1) ? apiKeyPatient1 : apiKeyPatient2;
         String url = String(server) + "?api_key=" + apiKey + "&field1=" + String(patient.temperature) + "&field2=" + String(patient.heartRate);
         http.begin(url);
         int httpCode = http.GET();
-        http.end();
-    }
-}
 
-void sendAlert(Patient &patient) {
-    if (WiFi.status() == WL_CONNECTED) {
-        HTTPClient http;
-        String ifttt_alert_url = (currentPatient == 1) ? ifttt_url_1 : ifttt_url_2;
-        String alertMessage = "Patient: " + patient.patientID + ", Room: " + patient.roomNo + ", Heart Rate: " + String(patient.heartRate) + ", Temperature: " + String(patient.temperature);
-        ifttt_alert_url += "?value1=" + String(patient.heartRate) + "&value2=" + String(patient.temperature) + "&value3=" + alertMessage;
-        http.begin(ifttt_alert_url);
-        int httpCode = http.POST("");  
         if (httpCode > 0) {
-            Serial.println("IFTTT alert triggered successfully");
+            Serial.println("Data sent to ThingSpeak successfully for " + patient.patientID);
         } else {
-            Serial.println("Error in triggering IFTTT alert");
+            Serial.println("Error in sending data to ThingSpeak for " + patient.patientID);
         }
         http.end();
     }
 }
+
+void sendAlert(Patient& patient) {
+    if (WiFi.status() == WL_CONNECTED) {
+        HTTPClient http;
+        String ifttt_url = (patient.patientID == "Patient 1") ? ifttt_url_1 : ifttt_url_2;
+        String ifttt_alert_url = ifttt_url + "?value1=" + String(patient.heartRate) + "&value2=" + String(patient.temperature);
+        http.begin(ifttt_alert_url);
+        int httpCode = http.POST("");  // Send a POST request to trigger the alert
+
+        if (httpCode > 0) {
+            Serial.println("IFTTT alert triggered successfully for " + patient.patientID);
+        } else {
+            Serial.println("Error in triggering IFTTT alert for " + patient.patientID);
+        }
+        http.end();
+    }
+}
+
