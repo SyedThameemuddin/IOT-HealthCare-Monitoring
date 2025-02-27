@@ -28,10 +28,10 @@ PulseSensorPlayground pulseSensor;
 DHT dht(DHTPIN, DHTTYPE);
 
 // Wi-Fi and ThingSpeak setup
-const char* ssid = "Airtel_Thameem_001";   
-const char* password = "Allah7860"; 
-String apiKeyPatient1 = "RZT1C7390VMNGL6H";  // ThingSpeak API Key for Patient 1
-String apiKeyPatient2 = "WSPDMH8ATSC5FA1M";  // ThingSpeak API Key for Patient 2
+const char* ssid = "//yourSSID//";   
+const char* password = "//Your pass// "; 
+String apiKeyPatient1 = "*******";  // ThingSpeak API Key for Patient 1
+String apiKeyPatient2 = "********";  // ThingSpeak API Key for Patient 2
 const char* server = "http://api.thingspeak.com/update";
 
 // IFTTT setup
